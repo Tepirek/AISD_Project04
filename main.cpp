@@ -2,7 +2,9 @@
 #include <stdlib.h>
 #include <iostream>
 #include <vector>
+#include <queue>
 #include <string>
+#include <limits.h>
 using namespace std;
 
 struct task {
@@ -41,12 +43,12 @@ struct edge {
 };
 
 char* readString();
+void printString(char* string);
 bool contains(vector<int> list, int value);
 vector<worker*> countWorkers(vector<department*> listOfDepartments);
 vector<int> countDays(vector<taskGroup*> listOfTaskGroups);
 vector<int> countTimeSlots(vector<taskGroup*> listOfTaskGroups);
 vector<task*> countTasks(vector<taskGroup*> listOfTaskGroups);
-int countTaskGroups(vector<taskGroup*> listOfTaskGroups);
 
 class Graph {
 	vector<vector<edge*>> graph;
@@ -71,7 +73,14 @@ public:
 		this->numberOfVertex = 2 + this->numberOfWorkers + (this->numberOfWorkers * this->numberOfDays) + (this->numberOfWorkers * this->numberOfDays * this->numberOfTimeSlots) + this->numberOfTasks + this->numberOfTaskGroups;
 		this->vertexCounter = 0;
 	}
-	~Graph() = default;
+	~Graph() {
+		this->graph.clear();
+		this->listOfDepartments.clear();
+		this->listOfTaskGroups.clear();
+		this->listOfWorkers.clear();
+		this->listOfTasks.clear();
+		this->listOfTimeSlots.clear();
+	}
 	void createEmptyGraph() {
 		for (int i = 0; i < numberOfVertex; i++) {
 			vector<edge*> v;
@@ -86,115 +95,172 @@ public:
 			this->graph.push_back(v);
 		}
 	}
-	void createGraph() {
-		vector<vector<edge*>> graph;
-		int sum = 2;
-		vector<worker*> listOfWorkers = countWorkers(listOfDepartments);
-		int w = listOfWorkers.size();
-		int d = countDays(listOfTaskGroups).size();
-		vector<int> listOfTimeSlots = countTimeSlots(listOfTaskGroups);
-		vector<task*> listOfTasks = countTasks(listOfTaskGroups);
-		int g = countTaskGroups(listOfTaskGroups);
-		sum += w + (w * d) + (w * d * listOfTimeSlots.size()) + listOfTasks.size() + g;
-		int numberOfVertex = sum;
-
-
-
-		this->createEmptyGraph();
-
-
-		graph = this->graph;
-
-		int vertexCounter = 0;
-
-
-		// po³¹czenie source z pracownikami
-		for (int i = 0; i < listOfWorkers.size(); i++) {
-			graph[vertexCounter][i + 1]->flow = listOfWorkers[i]->totalHours;
-			// graph[vertexCounter][i + 1]->flow = 1;
+	void connectSourceToWorkers() {
+		for (int i = 0; i < this->numberOfWorkers; i++) {
+			this->graph[this->vertexCounter][i + 1]->capacity = this->listOfWorkers[i]->totalHours;
 		}
-		vertexCounter++;
-
-
-
-		// po³¹czenie pracowników z dniami
-		for (int i = 1; i <= w; i++) {
-			for (int j = 0; j < d; j++) {
-				graph[i][w + j + i]->flow = listOfWorkers[i - 1]->dailyHours;
-				// graph[vertexCounter][w + j + i]->flow = 1;
+		this->vertexCounter++;
+	}
+	void connectWorkersToDays() {
+		for (int i = 1; i <= this->numberOfWorkers; i++) {
+			for (int j = 0; j < this->numberOfDays; j++) {
+				this->graph[i][this->numberOfWorkers + j + i]->capacity = this->listOfWorkers[i - 1]->dailyHours;
 			}
-			vertexCounter++;
+			this->vertexCounter++;
 		}
-
-
-
-		// po³¹czenie dni z czasem
-		for (int i = 0; i < w * d; i++) {
-			for (int j = 0; j < listOfTimeSlots.size(); j++) {
-				graph[vertexCounter][vertexCounter + (w * d - i) + (i * listOfTimeSlots.size()) + j]->flow = 1;
+	}
+	void connectDaysToTimeSlots() {
+		for (int i = 0; i < this->numberOfWorkers * this->numberOfDays; i++) {
+			for (int j = 0; j < this->numberOfTimeSlots; j++) {
+				this->graph[this->vertexCounter][this->vertexCounter + (this->numberOfWorkers * this->numberOfDays - i) + (i * this->numberOfTimeSlots) + j]->capacity = 1;
 			}
-			vertexCounter++;
+			this->vertexCounter++;
 		}
-
-
-
-		// po³¹czenie czasu z zadaniami
-		for (int i = 0; i < w * d * listOfTimeSlots.size(); i++) {
-			for (int j = 0; j < listOfTasks.size(); j++) {
-				if (listOfTimeSlots[i % listOfTimeSlots.size()] == listOfTasks[j]->timeSlot) {
-					graph[vertexCounter][vertexCounter + (w * d * listOfTimeSlots.size() - i) + j]->flow = 1;
+	}
+	void connectTimeSlotsToTasks() {
+		for (int i = 0; i < this->numberOfWorkers * this->numberOfDays * this->numberOfTimeSlots; i++) {
+			for (int j = 0; j < this->numberOfTasks; j++) {
+				if (listOfTimeSlots[i % this->numberOfTimeSlots] == listOfTasks[j]->timeSlot) {
+					this->graph[this->vertexCounter][this->vertexCounter + (this->numberOfWorkers * this->numberOfDays * this->numberOfTimeSlots - i) + j]->capacity = 1;
 				}
 			}
-			vertexCounter++;
+			this->vertexCounter++;
 		}
-
-
-
-		// po³¹czenie zadañ z ujœciem
-		for (int i = 0; i < listOfTasks.size(); i++) {
-			graph[vertexCounter][numberOfVertex - 1]->flow = listOfTasks[i]->minHours;
-			vertexCounter++;
+	}
+	void connectTasksToTarget() {
+		for (int i = 0; i < this->numberOfTasks; i++) {
+			this->graph[this->vertexCounter][this->numberOfVertex - 1]->capacity = this->listOfTasks[i]->minHours;
+			this->vertexCounter++;
 		}
-
-
-
-		// po³¹czenie zadañ z grupami
-		vertexCounter -= listOfTasks.size();
-		for (int i = 0; i < listOfTasks.size(); i++) {
-			for (int j = 0; j < listOfTaskGroups.size(); j++) {
-				for (int k = 0; k < listOfTaskGroups[j]->listOfTasks.size(); k++) {
-					if (listOfTaskGroups[j]->listOfTasks[k] == listOfTasks[i]) {
-						graph[vertexCounter][vertexCounter + listOfTasks.size() - i + j]->flow = listOfTasks[i]->maxHours - listOfTasks[i]->minHours;
+	}
+	void connectTasksToTaskGroups() {
+		this->vertexCounter -= this->numberOfTasks;
+		for (int i = 0; i < this->numberOfTasks; i++) {
+			for (int j = 0; j < this->numberOfTaskGroups; j++) {
+				for (int k = 0; k < this->listOfTaskGroups[j]->listOfTasks.size(); k++) {
+					if (this->listOfTaskGroups[j]->listOfTasks[k] == this->listOfTasks[i]) {
+						this->graph[this->vertexCounter][this->vertexCounter + this->numberOfTasks - i + j]->capacity = this->listOfTasks[i]->maxHours - this->listOfTasks[i]->minHours;
 					}
 				}
 			}
-			vertexCounter++;
+			this->vertexCounter++;
 		}
-		// po³¹czenie grup z ujœciem
-		for (int i = 0; i < listOfTaskGroups.size(); i++) {
+	}
+	void connectTaskGroupsToTarget() {
+		for (int i = 0; i < this->numberOfTaskGroups; i++) {
 			int sumOfTasks = 0;
-			for (int j = 0; j < listOfTaskGroups[i]->listOfTasks.size(); j++) {
-				sumOfTasks += listOfTaskGroups[i]->listOfTasks[j]->minHours;
+			for (int j = 0; j < this->listOfTaskGroups[i]->listOfTasks.size(); j++) {
+				sumOfTasks += this->listOfTaskGroups[i]->listOfTasks[j]->minHours;
 			}
-			graph[vertexCounter][numberOfVertex - 1]->flow = listOfTaskGroups[i]->numberOfHours - sumOfTasks;
-			// graph[vertexCounter][numberOfVertex - 1]->flow = -1;
-			vertexCounter++;
+			this->graph[this->vertexCounter][this->numberOfVertex - 1]->capacity = this->listOfTaskGroups[i]->numberOfHours - sumOfTasks;
+			this->vertexCounter++;
 		}
-
-		this->graph = graph;
+	}
+	void createGraph() {
+		this->createEmptyGraph();
+		this->connectSourceToWorkers();
+		this->connectWorkersToDays();
+		this->connectDaysToTimeSlots();
+		this->connectTimeSlotsToTasks();
+		this->connectTasksToTarget();
+		this->connectTasksToTaskGroups();
+		this->connectTaskGroupsToTarget();
 		this->printGraph();
 	}
 	void printGraph() {
-		// TEST START
-		printf("%d\n", this->vertexCounter);
 		for (int i = 0; i < this->numberOfVertex; i++) {
 			for (int j = 0; j < this->numberOfVertex; j++) {
-				printf("%d  ", this->graph[i][j]->flow);
+				printf("%d  ", this->graph[i][j]->capacity);
 			}
 			printf("\n");
 		}
 		printf("\n");
-		// TEST END
+	}
+	void printStatistics() {
+		printf("Number of departments: %d\n", this->listOfDepartments.size());
+		for (int i = 0; i < this->listOfDepartments.size(); i++) {
+			printString(this->listOfDepartments[i]->name);
+			printf("\t%d\n", this->listOfDepartments[i]->numberOfWorkers);
+			for (int j = 0; j < this->listOfDepartments[i]->listOfWorkers.size(); j++) {
+				printf("\tname: "); 
+				printString(this->listOfDepartments[i]->listOfWorkers[j]->name);
+				printf("\tvalue: %d\ttotal: %d\tdaily: %d\n", this->listOfDepartments[i]->listOfWorkers[j]->value, this->listOfDepartments[i]->listOfWorkers[j]->totalHours, this->listOfDepartments[i]->listOfWorkers[j]->dailyHours);
+			}
+		}
+		printf("\nNumber of task groups: %d\n", this->numberOfTaskGroups);
+		for (int i = 0; i < this->numberOfTaskGroups; i++) {
+			printString(this->listOfTaskGroups[i]->name);
+			printf("\t%d\n", this->listOfTaskGroups[i]->numberOfTasks);
+			for (int j = 0; j < this->listOfTaskGroups[i]->listOfTasks.size(); j++) {
+				printf("\t");
+				printf("day: %d\ttimeslot: %d\tmin: %d\tmax: %d\n", this->listOfTaskGroups[i]->listOfTasks[j]->day, this->listOfTaskGroups[i]->listOfTasks[j]->timeSlot, this->listOfTaskGroups[i]->listOfTasks[j]->minHours, this->listOfTaskGroups[i]->listOfTasks[j]->maxHours);
+			}
+		}
+	}
+	int calculateMaxFlow() {
+		int* predecessors = new int[this->numberOfVertex];
+		int* cfp = new int[this->numberOfVertex];
+		int maxFlow = 0;
+		int source = 0;
+		int target = this->numberOfVertex - 1;
+		queue<int> queue;
+		int colVertex, rowVertex, residualCapacity;
+
+		while (true) {
+			for (int i = 0; i < this->numberOfVertex; i++) {
+				predecessors[i] = -1;
+			}
+			predecessors[source] = -2;
+			cfp[source] = INT_MAX;
+			
+			while (!queue.empty()) {
+				queue.pop();
+			}
+			queue.push(source);
+			bool escape = false;
+
+			while (!queue.empty()) {
+				colVertex = queue.front();
+				queue.pop();
+
+				for (rowVertex = 0; rowVertex < this->numberOfVertex; rowVertex++) {
+					this->printGraph();
+					residualCapacity = this->graph[colVertex][rowVertex]->capacity - this->graph[colVertex][rowVertex]->flow;
+					if (residualCapacity && (predecessors[rowVertex] == -1)) {
+						predecessors[rowVertex] = colVertex;
+						cfp[rowVertex] = (cfp[colVertex] > residualCapacity) ? residualCapacity : cfp[colVertex];
+
+						if (rowVertex == target) {
+							maxFlow += cfp[target];
+							int parent = rowVertex;
+							while (parent != source) {
+								colVertex = predecessors[parent];
+								this->graph[colVertex][parent] += cfp[target];
+								this->graph[parent][colVertex] -= cfp[target];
+								parent = colVertex;
+							}
+							escape = true;
+							break;
+						}
+						queue.push(rowVertex);
+					}
+				}
+				if (escape) break;
+			}
+			if (!escape) break;
+		}
+		printf("\nmaxFlow = %d\n", maxFlow);
+		int counter = 1;
+		for (colVertex = 0; colVertex < this->numberOfVertex; colVertex++) {
+			for (rowVertex = 0; rowVertex < this->numberOfVertex; rowVertex++) {
+				if (this->graph[colVertex][rowVertex]->capacity) {
+					cout << counter << ". " << colVertex << " -> " << rowVertex << " " << this->graph[colVertex][rowVertex]->flow << ":" << this->graph[colVertex][rowVertex]->capacity << endl;
+					counter++;
+				}
+			}
+				
+		}
+		return 0;
 	}
 };
 
@@ -239,7 +305,9 @@ int main(void) {
 	}
 	Graph* g = new Graph(listOfDepartments, listOfTaskGroups);
 	g->createGraph();
-
+	g->printStatistics();
+	g->calculateMaxFlow();
+	g->~Graph();
 	return 0;
 }
 
@@ -252,7 +320,7 @@ char* readString() {
 	char c = '\0';
 	int counter = 0;
 	// czyszczenie buffora bo testy s¹ wredne i maj¹ dodatkowe spacje...
-	while ((c == getchar()) == ' ' || (c == getchar()) == '\n');
+	// while ((c == getchar()) == ' ' || (c == getchar()) == '\n');
 	while ((c = getchar()) != ' ') {
 		if (c == '\n') continue;
 		// if (counter == stringSize) reallocateString();
@@ -260,6 +328,14 @@ char* readString() {
 		counter++;
 	}
 	return nameOfDepartment;
+}
+
+void printString(char* string) {
+	int counter = 0;
+	while (string[counter] != '\0') {
+		printf("%c", string[counter]);
+		counter++;
+	}
 }
 
 bool contains(vector<int> list, int value) {
@@ -311,8 +387,4 @@ vector<task*> countTasks(vector<taskGroup*> listOfTaskGroups) {
 		}
 	}
 	return listOfTasks;
-}
-
-int countTaskGroups(vector<taskGroup*> listOfTaskGroups) {
-	return listOfTaskGroups.size();
 }
