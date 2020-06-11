@@ -49,6 +49,9 @@ vector<worker*> countWorkers(vector<department*> listOfDepartments);
 vector<int> countDays(vector<taskGroup*> listOfTaskGroups);
 vector<int> countTimeSlots(vector<taskGroup*> listOfTaskGroups);
 vector<task*> countTasks(vector<taskGroup*> listOfTaskGroups);
+vector<int> createDeleteWorkers(vector<worker*> listOfWorkers, vector<worker*> workersToCheck);
+vector<worker*> connectVectors(vector<worker*> v1, vector<worker*> v2);
+vector<vector<worker*>> getMatrixOfCombinations(vector<department*> listOfDepartments);
 
 class Graph {
 	vector<vector<edge*>> graph;
@@ -82,6 +85,8 @@ public:
 		this->listOfTimeSlots.clear();
 	}
 	void createEmptyGraph() {
+		this->graph.clear();
+		this->vertexCounter = 0;
 		for (int i = 0; i < numberOfVertex; i++) {
 			vector<edge*> v;
 			for (int j = 0; j < numberOfVertex; j++) {
@@ -156,7 +161,7 @@ public:
 			this->vertexCounter++;
 		}
 	}
-	void createGraph() {
+	void createGraph(vector<int> workersToDelete) {
 		this->createEmptyGraph();
 		this->connectSourceToWorkers();
 		this->connectWorkersToDays();
@@ -165,12 +170,22 @@ public:
 		this->connectTasksToTarget();
 		this->connectTasksToTaskGroups();
 		this->connectTaskGroupsToTarget();
-		this->printGraph();
+		this->deleteWorkers(workersToDelete);
+		// this->printGraphsFlow();
 	}
-	void printGraph() {
+	void printGraphsCapacity() {
 		for (int i = 0; i < this->numberOfVertex; i++) {
 			for (int j = 0; j < this->numberOfVertex; j++) {
-				printf("%d  ", this->graph[i][j]->capacity);
+				printf("%3d", this->graph[i][j]->capacity);
+			}
+			printf("\n");
+		}
+		printf("\n");
+	}
+	void printGraphsFlow() {
+		for (int i = 0; i < this->numberOfVertex; i++) {
+			for (int j = 0; j < this->numberOfVertex; j++) {
+				printf("%3d", this->graph[i][j]->flow);
 			}
 			printf("\n");
 		}
@@ -197,50 +212,97 @@ public:
 			}
 		}
 	}
+	void deleteWorkers(vector<int> workersToDelete) {
+		for (int i = 0; i < this->numberOfWorkers; i++) {
+			if (workersToDelete[i] == 0) {
+				this->graph[0][i + 1]->capacity = 0;
+			}
+		}
+	}
+	int createCombinations() {
+		int goal = 0;
+		for (int i = 0; i < this->listOfTaskGroups.size(); i++) {
+			goal += this->listOfTaskGroups[i]->numberOfHours;
+		}
+		int bestCost = INT_MAX, tmpCost = 0, maxFlow = 0;
+		vector<worker*> tmpCombinationOfWorkers;
+		vector<worker*> bestCombinationOfWorkers;
+		vector<int> workersToDelete;
+		for (int i = 0; i < this->listOfWorkers.size(); i++) {
+			for (int j = 0; j < this->listOfWorkers.size() - i; j++) {
+				for (int k = 0; k < i + 1; k++) {
+					// printf("%d", this->listOfWorkers[k + j]->value);
+					tmpCombinationOfWorkers.push_back(this->listOfWorkers[k + j]);
+				}
+				/*
+				printf("\n");
+				printf("LOW => ");
+				for (int x = 0; x < combinationOfWorkers.size(); x++) {
+					printf("%d ", combinationOfWorkers[x]);
+				}
+				printf("\n");
+				*/
+				tmpCost = 0;
+				workersToDelete = createDeleteWorkers(this->listOfWorkers, tmpCombinationOfWorkers);
+				this->createGraph(workersToDelete);
+				for (int i = 0; i < tmpCombinationOfWorkers.size(); i++) {
+					tmpCost += tmpCombinationOfWorkers[i]->value;
+				}
+				maxFlow = this->calculateMaxFlow();
+				printf("goal = %d, maxFlow = %d, tmpCost = %d, minCost = %d\n", goal, maxFlow, tmpCost, bestCost);
+				if (maxFlow == goal) {
+					if (bestCost > tmpCost) {
+						bestCost = tmpCost;
+						bestCombinationOfWorkers = tmpCombinationOfWorkers;
+					}
+				}
+				printf("goal = %d, maxFlow = %d, tmpCost = %d, minCost = %d\n", goal, maxFlow, tmpCost, bestCost);
+				tmpCombinationOfWorkers.clear();
+			}
+		}
+		return 0;
+	}
 	int calculateMaxFlow() {
+		queue <int> queue;
 		int* predecessors = new int[this->numberOfVertex];
-		int* cfp = new int[this->numberOfVertex];
-		int maxFlow = 0;
+		int* residualCapacities = new int[this->numberOfVertex];
 		int source = 0;
 		int target = this->numberOfVertex - 1;
-		queue<int> queue;
-		int colVertex, rowVertex, residualCapacity;
-
+		int maxFlow = 0;
+		int residualCapacity = 0;
+		int colVertex = 0;
+		int rowVertex = 0;
+		int i, j;
+		bool escape;
 		while (true) {
 			for (int i = 0; i < this->numberOfVertex; i++) {
 				predecessors[i] = -1;
 			}
 			predecessors[source] = -2;
-			cfp[source] = INT_MAX;
-			
+			residualCapacities[source] = INT_MAX;
 			while (!queue.empty()) {
 				queue.pop();
 			}
 			queue.push(source);
-			bool escape = false;
-
+			escape = false;
 			while (!queue.empty()) {
 				colVertex = queue.front();
 				queue.pop();
-
 				for (rowVertex = 0; rowVertex < this->numberOfVertex; rowVertex++) {
-					this->printGraph();
 					residualCapacity = this->graph[colVertex][rowVertex]->capacity - this->graph[colVertex][rowVertex]->flow;
 					if (residualCapacity && (predecessors[rowVertex] == -1)) {
 						predecessors[rowVertex] = colVertex;
-						cfp[rowVertex] = (cfp[colVertex] > residualCapacity) ? residualCapacity : cfp[colVertex];
-
+						residualCapacities[rowVertex] = residualCapacities[colVertex] > residualCapacity ? residualCapacity : residualCapacities[colVertex];
 						if (rowVertex == target) {
-							maxFlow += cfp[target];
-							int parent = rowVertex;
-							while (parent != source) {
-								colVertex = predecessors[parent];
-								this->graph[colVertex][parent] += cfp[target];
-								this->graph[parent][colVertex] -= cfp[target];
-								parent = colVertex;
+							maxFlow += residualCapacities[target];
+							i = rowVertex;
+							while (i != source) {
+								colVertex = predecessors[i];
+								this->graph[colVertex][i]->flow += residualCapacities[target];
+								this->graph[i][colVertex]->flow -= residualCapacities[target];
+								i = colVertex;
 							}
-							escape = true;
-							break;
+							escape = true; break;
 						}
 						queue.push(rowVertex);
 					}
@@ -249,22 +311,22 @@ public:
 			}
 			if (!escape) break;
 		}
-		printf("\nmaxFlow = %d\n", maxFlow);
-		int counter = 1;
-		for (colVertex = 0; colVertex < this->numberOfVertex; colVertex++) {
-			for (rowVertex = 0; rowVertex < this->numberOfVertex; rowVertex++) {
-				if (this->graph[colVertex][rowVertex]->capacity) {
-					cout << counter << ". " << colVertex << " -> " << rowVertex << " " << this->graph[colVertex][rowVertex]->flow << ":" << this->graph[colVertex][rowVertex]->capacity << endl;
-					counter++;
-				}
-			}
-				
-		}
-		return 0;
+		/*
+		cout << endl << "fmax = " << maxFlow << endl << endl;
+		for (colVertex = 0; colVertex < this->numberOfVertex; colVertex++)
+			for (rowVertex = 0; rowVertex < this->numberOfVertex; rowVertex++)
+				if (this->graph[colVertex][rowVertex]->capacity) cout << colVertex << " -> " << rowVertex << " " << this->graph[colVertex][rowVertex]->flow << ":" << this->graph[colVertex][rowVertex]->capacity << endl;
+		cout << endl;
+		*/
+		delete[] predecessors;
+		delete[] residualCapacities;
+		this->printGraphsFlow();
+		return maxFlow;
 	}
 };
 
 int main(void) {
+	
 	// tryb szeregowania i tryb wyjœcia
 	int schedulingMode = 0, outputMode = 0;
 	scanf_s("%d %d", &schedulingMode, &outputMode);
@@ -304,9 +366,8 @@ int main(void) {
 		}
 	}
 	Graph* g = new Graph(listOfDepartments, listOfTaskGroups);
-	g->createGraph();
 	g->printStatistics();
-	g->calculateMaxFlow();
+	// g->createCombinations();
 	g->~Graph();
 	return 0;
 }
@@ -387,4 +448,62 @@ vector<task*> countTasks(vector<taskGroup*> listOfTaskGroups) {
 		}
 	}
 	return listOfTasks;
+}
+
+vector<int> createDeleteWorkers(vector<worker*> listOfWorkers, vector<worker*> workersToCheck) {
+	vector<int> toDelete;
+	for (int i = 0; i < listOfWorkers.size(); i++) {
+		toDelete.push_back(0);
+	}
+	for (int i = 0; i < listOfWorkers.size(); i++) {
+		for (int j = 0; j < workersToCheck.size(); j++) {
+			if (listOfWorkers[i] == workersToCheck[j]) {
+				toDelete[i] = 1;
+			}
+		}
+	}
+	/*
+	for (int i = 0; i < toDelete.size(); i++) {
+		printf("%d", toDelete[i]);
+	}
+	*/
+	return toDelete;
+}
+
+vector<worker*> connectVectors(vector<worker*> v1, vector<worker*> v2) {
+	vector<worker*> ret;
+	for (int i = 0; i < v1.size(); i++) {
+		ret.push_back(v1[i]);
+	}
+	for (int i = 0; i < v2.size(); i++) {
+		ret.push_back(v2[i]);
+	}
+	return ret;
+}
+
+vector<vector<worker*>> getMatrixOfCombinations(vector<department*> listOfDepartments) {
+	vector<vector<worker*>> test;
+	for (int i = 0; i < listOfDepartments.size(); i++) {
+		for (int j = 0; j < listOfDepartments[i]->numberOfWorkers; j++) {
+			vector<worker*> tmp;
+			for (int k = 0; k < j + 1; k++) {
+				tmp.push_back(listOfDepartments[i]->listOfWorkers[k]);
+			}
+			test.push_back(tmp);
+		}
+	}
+
+	for (int i = 0; i < listOfDepartments[0]->numberOfWorkers; i++) {
+		for (int j = 0; j < listOfDepartments[1]->numberOfWorkers; j++) {
+			test.push_back(connectVectors(test[i], test[j + listOfDepartments[0]->numberOfWorkers]));
+		}
+	}
+
+	for (int i = 0; i < test.size(); i++) {
+		for (int j = 0; j < test[i].size(); j++) {
+			printf("%d ", test[i][j]->value);
+		}
+		printf("\n");
+	}
+	return test;
 }
